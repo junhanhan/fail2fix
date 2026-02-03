@@ -1,0 +1,79 @@
+==> Starting CI job: unit-tests
+Runner: ubuntu-latest
+Python: 3.11.4
+Working dir: /home/runner/work/demo/demo
+
+[Step 1/6] Checkout
+Cloning into '/home/runner/work/demo/demo'...
+Submodule 'lib/foo' (https://example.com/foo.git) registered for path 'lib/foo'
+Submodule path 'lib/foo': checked out 'a1b2c3d4'
+
+[Step 2/6] Set up Python
+Successfully installed pip-24.0
+Collecting pip-tools
+  Downloading pip_tools-7.4.1-py3-none-any.whl (57 kB)
+Installing collected packages: pip-tools
+Successfully installed pip-tools-7.4.1
+
+[Step 3/6] Install dependencies
+Looking in indexes: https://pypi.org/simple
+Collecting requests==2.31.0
+  Downloading requests-2.31.0-py3-none-any.whl (62 kB)
+Collecting urllib3==2.2.1
+  Downloading urllib3-2.2.1-py3-none-any.whl (121 kB)
+Installing collected packages: urllib3, requests
+Successfully installed requests-2.31.0 urllib3-2.2.1
+
+[Notice] A new release of pip is available: 24.0 -> 24.1
+[Notice] To update, run: pip install --upgrade pip
+
+[Step 4/6] Lint
+black 24.2.0
+All done! ✨ 🍰 ✨
+1 file left unchanged.
+
+flake8 7.0.0
+0
+
+[Step 5/6] Run tests
+============================= test session starts ==============================
+platform linux -- Python 3.11.4, pytest-8.2.0, pluggy-1.5.0
+rootdir: /home/runner/work/demo/demo
+plugins: anyio-4.4.0
+collected 8 items
+
+tests/test_api.py .....
+tests/test_utils.py ..
+
+=================================== FAILURES ===================================
+________________________________ test_parse_user _______________________________
+
+    def test_parse_user():
+        # "age" must be int
+>       assert parse_user({"name": "Ann", "age": "12"})["age"] == 12
+E       AssertionError: assert '12' == 12
+E        +  where '12' = {'name': 'Ann', 'age': '12'}['age']
+
+tests/test_api.py:42: AssertionError
+----------------------------- Captured stdout call -----------------------------
+parsing user...
+done.
+
+=========================== short test summary info ============================
+FAILED tests/test_api.py::test_parse_user - AssertionError: assert '12' == 12
+========================= 1 failed, 7 passed in 0.42s ==========================
+
+[Step 6/6] Upload artifacts
+Uploading artifacts...
+Artifact uploaded successfully.
+
+Job failed: exit code 1
+
+---- extra noise below (simulating long logs) ----
+Downloading cache... 0%... 20%... 40%... 60%... 80%... 100%
+Cache restored.
+Some unrelated warning: DeprecationWarning: something will change in the future.
+Retrying (Retry(total=4, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError'
+Retrying (Retry(total=3, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError'
+Retrying (Retry(total=2, connect=None, read=None, redirect=None, status=None)) after connection broken by 'NewConnectionError'
+---- end noise ----
