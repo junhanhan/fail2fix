@@ -86,6 +86,7 @@ def extract_metadata_from_snippet(snippet_lines: List[str]) -> dict:
     Extract minimal metadata for later context collection:
       - pytest test_id: tests/x.py::test_name
       - file path + line number: tests/x.py:42: ...
+      - repro_cmd: 复现命令
     """
     meta = {}
 
@@ -99,6 +100,8 @@ def extract_metadata_from_snippet(snippet_lines: List[str]) -> dict:
                 meta["file"] = test_id.split("::", 1)[0]
             else:
                 meta["file"] = test_id
+            # 生成复现命令
+            meta["repro_cmd"] = f"pytest -xvs {test_id}"
             break
 
     # 2) file:line: ... pattern
@@ -110,7 +113,66 @@ def extract_metadata_from_snippet(snippet_lines: List[str]) -> dict:
             meta["line"] = int(m.group(2))
             break
 
+    # 3) 如果没有 test_id，生成默认复现命令
+    if "repro_cmd" not in meta:
+        if meta.get("file"):
+            meta["repro_cmd"] = f"pytest -xvs {meta['file']}"
+        else:
+            meta["repro_cmd"] = "pytest -xvs"
+
     return meta
+
+
+def generate_suspects(signature: str, snippet_lines: List[str], metadata: dict) -> List[str]:
+    """
+    生成怀疑点 Top3（规则版，不用 AI）
+    """
+    suspects = []
+    sig_lower = signature.lower()
+    
+    # AssertionError：类型/比较逻辑
+    if "assert" in sig_lower or "assertion" in sig_lower:
+        suspects.append("🔍 类型不匹配或比较逻辑错误（检查 assert 语句两侧的类型）")
+        suspects.append("🔍 预期值与实际值不一致（检查测试数据或业务逻辑）")
+        suspects.append("🔍 边界条件未覆盖（检查空值、零值、极端值处理）")
+    
+    # ModuleNotFoundError：依赖/requirements
+    elif "modulenotfound" in sig_lower or "importerror" in sig_lower:
+        suspects.append("🔍 缺少依赖包（检查 requirements.txt 或 package.json）")
+        suspects.append("🔍 Python 路径问题（检查 PYTHONPATH 或相对导入）")
+        suspects.append("🔍 虚拟环境未激活或依赖未安装（运行 pip install -r requirements.txt）")
+    
+    # Timeout：外部依赖/网络/并发
+    elif "timeout" in sig_lower or "oom" in sig_lower or "killed" in sig_lower:
+        suspects.append("🔍 外部服务响应慢或不可达（检查网络连接、API 端点）")
+        suspects.append("🔍 资源限制（内存不足、CPU 超载、并发过高）")
+        suspects.append("🔍 死锁或无限循环（检查异步代码、锁机制）")
+    
+    # TypeScript/编译错误
+    elif "ts" in sig_lower or "build:error" in sig_lower:
+        suspects.append("🔍 类型定义错误（检查 TypeScript 类型声明）")
+        suspects.append("🔍 语法错误或 API 变更（检查最近的代码改动）")
+        suspects.append("🔍 依赖版本不兼容（检查 package.json 版本锁定）")
+    
+    # npm/yarn 错误
+    elif "npm" in sig_lower or "yarn" in sig_lower or "pnpm" in sig_lower:
+        suspects.append("🔍 依赖安装失败（检查 package.json 和 lock 文件）")
+        suspects.append("🔍 版本冲突或 registry 问题（尝试清除缓存重新安装）")
+        suspects.append("🔍 权限或网络问题（检查 npm registry 可达性）")
+    
+    # Python traceback
+    elif "py:" in sig_lower and "error" in sig_lower:
+        suspects.append("🔍 运行时异常（检查堆栈跟踪中的具体错误行）")
+        suspects.append("🔍 数据验证失败（检查输入数据格式和边界条件）")
+        suspects.append("🔍 环境配置问题（检查环境变量、配置文件）")
+    
+    # 默认通用建议
+    else:
+        suspects.append("🔍 检查最近的代码变更（git diff）")
+        suspects.append("🔍 本地复现问题（使用下方复现命令）")
+        suspects.append("🔍 查看完整日志（下载 Artifacts 中的 ci.log）")
+    
+    return suspects[:3]  # 最多返回 3 条
 
 
 def _python_traceback_candidate(lines: List[str]) -> Optional[Candidate]:
@@ -288,6 +350,7 @@ def extract_fatal(text: str) -> dict:
             "confidence": "low",
             "reason": "no_lines",
             "metadata": {},
+            "suspects": [],
         }
 
     candidates: List[Candidate] = []
@@ -307,6 +370,7 @@ def extract_fatal(text: str) -> dict:
 
     snippet = _sanitize(best.snippet_lines)
     metadata = extract_metadata_from_snippet(snippet)
+    suspects = generate_suspects(best.signature, snippet, metadata)
 
     return {
         "ok": True,
@@ -315,6 +379,7 @@ def extract_fatal(text: str) -> dict:
         "confidence": best.confidence,
         "reason": best.reason,
         "metadata": metadata,
+        "suspects": suspects,
         "lines_in_input": len(lines),
         "lines_in_snippet": len(snippet),
     }

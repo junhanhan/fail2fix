@@ -1,4 +1,4 @@
-name: CI + Fail2Fix Bot
+name: CI + Fail2Fix Bot (API logs)
 
 on:
   pull_request:
@@ -6,43 +6,57 @@ on:
 
 permissions:
   contents: read
+  actions: read
   pull-requests: write
 
 jobs:
   test-and-autopsy:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
+      
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
-      - name: Run tests (capture log)
+      
+      - name: Run tests
         id: run_tests
-        shell: bash
+        continue-on-error: true
         run: |
-          set +e
-          pytest -q 2>&1 | tee ci.log
-          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
-          exit 0
-
+          pytest texts/ -v
+      
+      # 只有失败才做尸检
+      - name: Fetch logs via GitHub API
+        if: ${{ steps.run_tests.outcome == 'failure' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python gha_fetch.py
+      
       - name: Fail2Fix extract
-        if: ${{ steps.run_tests.outputs.exit_code != '0' }}
-        shell: bash
+        if: ${{ steps.run_tests.outcome == 'failure' }}
         run: |
-          python tools/fail2fix.py < ci.log > report.json
+          python fail2fix.py < ci.log > report.json
           cat report.json
-
+      
+      - name: Upload artifacts
+        if: ${{ steps.run_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fail2fix-report
+          path: |
+            ci.log
+            report.json
+            run_logs/**
+      
       - name: Comment on PR
-        if: ${{ github.event_name == 'pull_request' && steps.run_tests.outputs.exit_code != '0' }}
+        if: ${{ github.event_name == 'pull_request' && steps.run_tests.outcome == 'failure' }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -52,17 +66,33 @@ jobs:
             const sig = report.error_signature || 'unknown';
             const conf = report.confidence || 'low';
             const meta = report.metadata || {};
+            const suspects = report.suspects || [];
+            const reproCmd = meta.repro_cmd || 'pytest -xvs';
+            
+            let suspectsText = '';
+            if (suspects.length > 0) {
+              suspectsText = '\n\n### 🔍 怀疑点 Top3\n\n' + suspects.map(s => `- ${s}`).join('\n');
+            }
+            
+            const body = `### 🧪 Fail2Fix Bot 报告
 
-            const body =
-`### 🧪 Fail2Fix Bot 报告（CI 尸检）
-**Signature:** \`${sig}\`
-**Confidence:** \`${conf}\`
-**Metadata:** \`${JSON.stringify(meta)}\`
+**Error Signature:** \`${sig}\`  
+**Confidence:** \`${conf}\`  
+**复现命令:** \`${reproCmd}\`
+${suspectsText}
 
-<details><summary>Fatal Snippet</summary>
+<details><summary>📋 Fatal Snippet</summary>
 
 \`\`\`
 ${snippet}
+\`\`\`
+
+</details>
+
+<details><summary>📊 Metadata</summary>
+
+\`\`\`json
+${JSON.stringify(meta, null, 2)}
 \`\`\`
 
 </details>
@@ -73,7 +103,7 @@ ${snippet}
               issue_number: context.payload.pull_request.number,
               body
             });
-
+      
       - name: Fail job if tests failed
-        if: ${{ steps.run_tests.outputs.exit_code != '0' }}
+        if: ${{ steps.run_tests.outcome == 'failure' }}
         run: exit 1
