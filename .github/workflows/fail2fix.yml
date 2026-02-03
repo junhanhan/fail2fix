@@ -57,7 +57,7 @@ jobs:
             report.json
             run_logs/**
 
-      - name: Comment on PR
+            - name: Comment on PR
         if: ${{ github.event_name == 'pull_request' && steps.run_tests.outcome == 'failure' }}
         uses: actions/github-script@v7
         with:
@@ -69,24 +69,27 @@ jobs:
             const sig = report.error_signature || 'unknown';
             const conf = report.confidence || 'low';
             const meta = report.metadata || {};
-            const reproCmd = meta.test_id ? `pytest -q ${meta.test_id}` : 'pytest -q';
+            const reproCmd = meta.test_id ? ('pytest -q ' + meta.test_id) : 'pytest -q';
 
-            const body =
-`### 🧪 Fail2Fix Bot 报告
+            const bodyLines = [
+              '### 🧪 Fail2Fix Bot 报告',
+              '',
+              '**Error Signature:** `' + sig + '`',
+              '**Confidence:** `' + conf + '`',
+              '**Metadata:** `' + JSON.stringify(meta) + '`',
+              '**复现命令:** `' + reproCmd + '`',
+              '',
+              '<details><summary>Fatal Snippet</summary>',
+              '',
+              '```',
+              snippet,
+              '```',
+              '',
+              '</details>',
+              ''
+            ];
 
-**Error Signature:** \`${sig}\`  
-**Confidence:** \`${conf}\`  
-**Metadata:** \`${JSON.stringify(meta)}\`  
-**复现命令:** \`${reproCmd}\`
-
-<details><summary>Fatal Snippet</summary>
-
-\`\`\`
-${snippet}
-\`\`\`
-
-</details>
-`;
+            const body = bodyLines.join('\n');
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -94,6 +97,7 @@ ${snippet}
               issue_number: context.payload.pull_request.number,
               body
             });
+
 
       - name: Fail job if tests failed
         if: ${{ steps.run_tests.outcome == 'failure' }}
